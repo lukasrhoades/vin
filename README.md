@@ -7,15 +7,15 @@ Vin is built on [antirez's kilo editor](https://github.com/antirez/kilo), follow
 [Snaptoken instructions](https://viewsourcecode.org/snaptoken/kilo/index.html) by Paige Ruten.
 
 Currently implemented:
-- open and save existing files
+- open and save files
     - leader: space
+    - prompt mode
 - basic insert mode and normal mode commands
     - hjkl, ctrl-U/D, ctrl-B/F, 0^$
     - i, ESC to toggle modes
 - basic status & message bar
 
 To-do:
-- write new files (Snaptoken)
 - search (Snaptoken)
 - syntax highlighting (Snaptoken)
 - cache-based commands

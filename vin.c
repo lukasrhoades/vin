@@ -29,19 +29,13 @@
 enum editorKey {
   BACKSPACE = 127,
   QUIT = 1000,
-  UP,
-  DOWN,
-  LEFT,
-  RIGHT,
-  FULL_LEFT,
-  END_LINE,
-  MV_UP,
-  MV_DOWN,
-  PG_UP,
-  PG_DOWN,
+  UP, DOWN, LEFT, RIGHT,
+  FULL_LEFT, START_LINE, END_LINE,
+  MV_UP, MV_DOWN,
+  PG_UP, PG_DOWN,
   WRITE,
   ENTER,
-  START_LINE
+  RETURN_CLI, CANCEL_CLI, BS_CLI
 };
 
 enum modes {
@@ -88,6 +82,8 @@ struct editorConfig E;
 /*** prototypes ***/
 
 void editorSetStatusMessage(const char* fmt, ...);
+void editorRefreshScreen(void);
+char *editorPrompt(char *prompt);
 
 /*** terminal ***/
 
@@ -140,6 +136,9 @@ int editorReadKey(void) {
       }
     }
 
+    if (E.mode == CLI)
+      return CANCEL_CLI;
+
     return '\x1b';
   } else if (E.mode == NORMAL && c == LDR) {
     char seq[2];
@@ -167,6 +166,8 @@ int editorReadKey(void) {
       case BACKSPACE:
         if (E.mode == INSERT)
           break;
+        if (E.mode == CLI)
+          return BS_CLI;
       case 'h':
         if (E.mode == NORMAL)
           return LEFT;
@@ -187,6 +188,8 @@ int editorReadKey(void) {
       case '\r':
         if (E.mode == INSERT)
           return ENTER;
+        if (E.mode == CLI)
+          return RETURN_CLI;
         E.cy++;
       case '^':
         return START_LINE;
@@ -457,8 +460,13 @@ void editorOpen(char *filename) {
 }
 
 void editorSave(void) {
-  if (E.filename == NULL)
-    return;
+  if (E.filename == NULL) {
+    E.filename = editorPrompt("Save as: %s");
+    if (E.filename == NULL) {
+      editorSetStatusMessage("Save aborted");
+      return;
+    }
+  }
 
   int len;
   char *buf = editorRowsToString(&len);
@@ -505,6 +513,46 @@ void abFree(struct abuf *ab) {
 }
 
 /*** input ***/
+
+char *editorPrompt(char *prompt) {
+  size_t bufsize = 128;
+  char *buf = malloc(bufsize);
+
+  size_t buflen = 0;
+  buf[0] = '\0';
+
+  E.mode = CLI;
+
+  while (1) {
+    editorSetStatusMessage(prompt, buf);
+    editorRefreshScreen();
+
+    int c = editorReadKey();
+    if (c == BS_CLI) {
+      if (buflen != 0)
+        buf[--buflen] = '\0';
+    }
+    if (c == CANCEL_CLI) {
+      editorSetStatusMessage("");
+      free(buf);
+      E.mode = NORMAL;
+      return NULL;
+    } else if (c == RETURN_CLI) {
+      if (buflen != 0) {
+        editorSetStatusMessage("");
+        E.mode = NORMAL;
+        return buf;
+      }
+    } else if (!iscntrl(c) && c < 128) {
+      if (buflen == bufsize - 1) {
+        bufsize *= 2;
+        buf = realloc(buf, bufsize);
+      }
+      buf[buflen++] = c;
+      buf[buflen] = '\0';
+    }
+  }
+}
 
 void editorMoveCursor(int key) {
   erow *row = CURR_ROW;
