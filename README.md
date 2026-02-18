@@ -14,6 +14,9 @@ Currently implemented:
     - hjkl, ctrl-U/D, ctrl-B/F, 0^$
     - i, ESC to toggle modes
 - basic status & message bar
+- soft indentation
+    - tabs insert spaces
+    - backspace removes tab-worths of space
 
 To-do:
 - search (Snaptoken)
@@ -27,7 +30,6 @@ To-do:
     - r, R
 - visual mode
     - v, shift-V
-- tab to insert spaces
 - line numbers
 - smart indentation
     - auto indent to start
