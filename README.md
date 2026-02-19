@@ -17,9 +17,12 @@ Currently implemented:
 - soft indentation
     - tabs insert spaces
     - backspace removes tab-worths of space
+- search mode
+    - / ? n N to navgiate
 
 To-do:
-- search (Snaptoken)
+- highlight matches
+- multi-key sequence support for leader bindings
 - syntax highlighting (Snaptoken)
 - cache-based commands
     - undo, redo, ctrl-O

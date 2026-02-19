@@ -36,7 +36,9 @@ enum editorKey {
   PG_UP, PG_DOWN,
   WRITE,
   ENTER,
-  RETURN_CLI, CANCEL_CLI, BS_CLI
+  RETURN_CLI, CANCEL_CLI, BS_CLI,
+  FWD_SEARCH, BWD_SEARCH, NXT_SEARCH, PRV_SEARCH,
+  CLR_MATCHES
 };
 
 enum modes {
@@ -59,6 +61,12 @@ typedef struct erow {
   char *chars;
 } erow;
 
+typedef struct match {
+  int cx;
+  int cy;
+  int rowoff;
+} match;
+
 struct editorConfig {
   int cx, cy;
   int rowoff;
@@ -72,6 +80,10 @@ struct editorConfig {
   char statusmsg[80];
   time_t statusmsg_time;
   int mode;
+  int dirsearch;
+  match *match_cache;
+  int num_matches;
+  int match_index;
   struct termios orig_termios;
 };
 
@@ -81,7 +93,7 @@ struct editorConfig E;
 
 void editorSetStatusMessage(const char* fmt, ...);
 void editorRefreshScreen(void);
-char *editorPrompt(char *prompt);
+char *editorPrompt(char *prompt, void (*callback)(char *, int));
 
 /*** terminal ***/
 
@@ -143,12 +155,14 @@ int editorReadKey(void) {
 
     if (read(STDIN_FILENO, &seq[0], 1) != 1)
       return LDR;
-    
+
     switch (seq[0]) {
       case 'q':
         return QUIT;
       case 'w':
         return WRITE;
+      case 'c':
+        return CLR_MATCHES;
     }
 
     return LDR;
@@ -164,8 +178,9 @@ int editorReadKey(void) {
       case BACKSPACE:
         if (E.mode == INSERT)
           break;
-        if (E.mode == CLI)
+        if (E.mode == CLI) {
           return BS_CLI;
+        }
       case 'h':
         if (E.mode == NORMAL)
           return LEFT;
@@ -186,8 +201,10 @@ int editorReadKey(void) {
       case '\r':
         if (E.mode == INSERT)
           return ENTER;
-        if (E.mode == CLI)
+        if (E.mode == CLI) {
+          E.mode = NORMAL;
           return RETURN_CLI;
+        }
         E.cy++;
       case '^':
         return START_LINE;
@@ -216,6 +233,27 @@ int editorReadKey(void) {
       case CTRL_KEY('F'):
         if (E.mode == NORMAL)
           return PG_DOWN;
+        break;
+
+      case '/':
+        if (E.mode == NORMAL) {
+          E.mode = CLI;
+          return FWD_SEARCH;
+        }
+        break;
+      case '?':
+        if (E.mode == NORMAL) {
+          E.mode = CLI;
+          return BWD_SEARCH;
+        }
+        break;
+      case 'n':
+        if (E.mode == NORMAL && E.match_cache)
+          return NXT_SEARCH;
+        break;
+      case 'N':
+        if (E.mode == NORMAL && E.match_cache)
+          return PRV_SEARCH;
         break;
     }
 
@@ -485,7 +523,7 @@ void editorOpen(char *filename) {
 
 void editorSave(void) {
   if (E.filename == NULL) {
-    E.filename = editorPrompt("Save as: %s");
+    E.filename = editorPrompt("Save as: %s", NULL);
     if (E.filename == NULL) {
       editorSetStatusMessage("Save aborted");
       return;
@@ -513,25 +551,90 @@ void editorSave(void) {
   editorSetStatusMessage("Can't save! I/O error: %s", strerror(errno));
 }
 
+/*** match operations ***/
+
+void insertMatch(int cx, int cy, int rowoff) {
+  E.match_cache = realloc(E.match_cache, sizeof(match) * (E.num_matches+1));
+
+  int at = E.num_matches;
+  E.match_cache[at].cx = cx;
+  E.match_cache[at].cy = cy;
+  E.match_cache[at].rowoff = rowoff;
+
+  E.num_matches++;
+}
+
 /*** find ***/
 
-void editorFind(void) {
-  char *query = editorPrompt("/%s");
-  if (query == NULL)
+void editorGoToCurrMatch(void) {
+  match curr_match = E.match_cache[E.match_index];
+
+  E.cx = curr_match.cx;
+  E.cy = curr_match.cy;
+  E.rowoff = curr_match.rowoff;
+}
+
+void editorGoToNextMatch(void) {
+  E.dirsearch ? E.match_index++ : E.match_index--;
+  if (E.match_index == E.num_matches)
+    E.match_index = 0;
+  if (E.match_index == -1)
+    E.match_index = E.num_matches-1;
+  editorGoToCurrMatch();
+}
+
+void editorGoToPrevMatch(void) {
+  E.dirsearch ? E.match_index-- : E.match_index++;
+  if (E.match_index == E.num_matches)
+    E.match_index = 0;
+  if (E.match_index == -1)
+    E.match_index = E.num_matches-1;
+  editorGoToCurrMatch();
+}
+
+void editorFindCallback(char *query, int key) {
+  if (key == RETURN_CLI)
+    return;
+
+  free(E.match_cache);
+  E.match_cache = NULL;
+  E.num_matches = 0;
+  E.match_index = 0;
+
+  if (key == CANCEL_CLI)
     return;
 
   for (int i=0; i<E.numrows; i++) {
     erow *row = &E.row[i];
     char *match = strstr(row->chars, query);
     if (match) {
-      E.cy = i;
-      E.cx = match - row->chars;
-      E.rowoff = E.numrows;
-      break;
+      if (i<=E.cy)
+        E.match_index = E.num_matches;
+      insertMatch(match-row->chars, i, E.numrows);
     }
   }
 
-  free(query);
+  if (E.num_matches > 0)
+    editorGoToCurrMatch();
+}
+
+void editorFind(int fwd) {
+  int saved_cx = E.cx;
+  int saved_cy = E.cy;
+  int saved_coloff = E.coloff;
+  int saved_rowoff = E.rowoff;
+
+  E.dirsearch = fwd;
+  char *query = editorPrompt(E.dirsearch ? "/%s" : "?%s", editorFindCallback);
+
+  if (query)
+    free(query);
+  else {
+    E.cx = saved_cx;
+    E.cy = saved_cy;
+    E.coloff = saved_coloff;
+    E.rowoff = saved_rowoff;
+  }
 }
 
 /*** append buffer ***/
@@ -559,7 +662,7 @@ void abFree(struct abuf *ab) {
 
 /*** input ***/
 
-char *editorPrompt(char *prompt) {
+char *editorPrompt(char *prompt, void (*callback)(char *, int)) {
   size_t bufsize = 128;
   char *buf = malloc(bufsize);
 
@@ -579,12 +682,16 @@ char *editorPrompt(char *prompt) {
     }
     if (c == CANCEL_CLI) {
       editorSetStatusMessage("");
+      if (callback)
+        callback(buf, c);
       free(buf);
       E.mode = NORMAL;
       return NULL;
     } else if (c == RETURN_CLI) {
       if (buflen != 0) {
         editorSetStatusMessage("");
+        if (callback)
+          callback(buf, c);
         E.mode = NORMAL;
         return buf;
       }
@@ -596,6 +703,9 @@ char *editorPrompt(char *prompt) {
       buf[buflen++] = c;
       buf[buflen] = '\0';
     }
+
+    if (callback)
+      callback(buf, c);
   }
 }
 
@@ -710,6 +820,27 @@ void editorProcessKeypress(void) {
 
     case CTRL_KEY('l'):
     case '\x1b':
+      break;
+
+    case FWD_SEARCH:
+      editorFind(1);
+      break;
+    case BWD_SEARCH:
+      editorFind(0);
+      break;
+
+    case NXT_SEARCH:
+      editorGoToNextMatch();
+      break;
+    case PRV_SEARCH:
+      editorGoToPrevMatch();
+      break;
+
+    case CLR_MATCHES:
+      free(E.match_cache);
+      E.match_cache = NULL;
+      E.num_matches = 0;
+      E.match_index = 0;
       break;
 
     default:
@@ -852,6 +983,10 @@ void initEditor(void) {
   E.statusmsg[0] = '\0';
   E.statusmsg_time = 0;
   E.mode = NORMAL;
+  E.dirsearch = 0;
+  E.match_cache = NULL;
+  E.num_matches = 0;
+  E.match_index = 0;
 
   if (getWindowSize(&E.screenrows, &E.screencols) == -1)
     die ("getWindowSize");
