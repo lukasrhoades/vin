@@ -29,9 +29,12 @@
 enum editorKey {
   BACKSPACE = 127,
   QUIT = 1000,
+  BREAK, LDR1,
   TAB,
   UP, DOWN, LEFT, RIGHT,
   FULL_LEFT, START_LINE, END_LINE,
+  DEL_CHAR,
+  GOTO_TOP, GOTO_BOT,
   MV_UP, MV_DOWN,
   PG_UP, PG_DOWN,
   WRITE,
@@ -59,8 +62,6 @@ enum editorHighlight {
   HL_NUMBER,
   HL_MATCH
 };
-
-#define BREAK 3000
 
 #define CURR_ROW \
   (E.cy >= E.numrows) ? NULL : &E.row[E.cy]
@@ -188,6 +189,7 @@ void enableRawMode(void) {
 }
  
 int editorReadKey(void) {
+  static int prev_key = -1;
   int nread;
   char c;
 
@@ -197,39 +199,45 @@ int editorReadKey(void) {
   }
 
   if (c == '\x1b') {
-    char seq[3];
-
-    if (read(STDIN_FILENO, &seq[0], 1) != 1) {
-      if (E.mode == INSERT) {
-        E.mode = NORMAL;
-        if (VALID_NON_EMPTY_ROW && E.cx > E.row[E.cy].size-1)
-          E.cx = E.row[E.cy].size-1;
-        return BREAK;
-      }
+    if (E.mode == INSERT) {
+      E.mode = NORMAL;
+      if (VALID_NON_EMPTY_ROW && E.cx > E.row[E.cy].size-1)
+        E.cx = E.row[E.cy].size-1;
+      prev_key = c;
+      return BREAK;
     }
 
-    if (E.mode == CLI)
+    if (E.mode == CLI) {
+      prev_key = c;
       return CANCEL_CLI;
+    }
 
-    return '\x1b';
-  } else if (E.mode == NORMAL && c == LDR) {
-    char seq[2];
-
-    if (read(STDIN_FILENO, &seq[0], 1) != 1)
-      return LDR;
-
-    switch (seq[0]) {
+    prev_key = c;
+    return BREAK;
+  } else if (E.mode == NORMAL && prev_key == LDR) {
+    switch (c) {
       case 'q':
+        prev_key = c;
         return QUIT;
       case 'w':
+        prev_key = c;
         return WRITE;
-      case 'c':
-        return CLR_MATCHES;
+      case 'n':
+        prev_key = LDR1;
+        return BREAK;
     }
 
-    return LDR;
+    prev_key = c;
+    return c;
   } else {
     switch (c) {
+      case LDR:
+        if (E.mode == NORMAL) {
+          prev_key = c;
+          return BREAK;
+        }
+        break;
+
       case 'A':
         if (E.mode != NORMAL)
           break;
@@ -237,11 +245,12 @@ int editorReadKey(void) {
       case 'a':
         if (E.mode != NORMAL)
           break;
-        if (E.cx < E.row[E.cy].size)
+        if (E.cy < E.numrows && E.cx < E.row[E.cy].size)
           E.cx++;
       case 'i':
         if (E.mode == NORMAL) {
           E.mode = INSERT;
+          prev_key = c;
           return BREAK;
         }
         break;
@@ -250,56 +259,105 @@ int editorReadKey(void) {
         if (E.mode == INSERT)
           break;
         if (E.mode == CLI) {
+          prev_key = c;
           return BS_CLI;
         }
       case 'h':
-        if (E.mode == NORMAL)
+        if (E.mode == NORMAL) {
+          if (prev_key == LDR1) {
+            prev_key = c;
+            return CLR_MATCHES;
+          }
+          prev_key = c;
           return LEFT;
+        }
         break;
       case 'j':
-        if (E.mode == NORMAL)
+        if (E.mode == NORMAL) {
+          prev_key = c;
           return DOWN;
+        }
         break;
       case 'k':
-        if (E.mode == NORMAL)
+        if (E.mode == NORMAL) {
+          prev_key = c;
           return UP;
+        }
         break;
       case 'l':
-        if (E.mode == NORMAL)
+        if (E.mode == NORMAL) {
+          prev_key = c;
           return RIGHT;
+        }
+        break;
+
+      case 'x':
+        if (E.mode == NORMAL) {
+          prev_key = c;
+          return DEL_CHAR;
+        }
         break;
 
       case '\r':
-        if (E.mode == INSERT)
+        if (E.mode == INSERT) {
+          prev_key = c;
           return ENTER;
+        }
         if (E.mode == CLI) {
           E.mode = NORMAL;
+          prev_key = c;
           return RETURN_CLI;
         }
         E.cy++;
       case '^':
+        prev_key = c;
         return START_LINE;
       case '0':
-        if (E.mode == NORMAL)
+        if (E.mode == NORMAL) {
+          prev_key = c;
           return FULL_LEFT;
+        }
         break;
       case '$':
-        if (E.mode == NORMAL)
+        if (E.mode == NORMAL) {
+          prev_key = c;
           return END_LINE;
+        }
+        break;
+
+      case 'g':
+        if (E.mode == NORMAL && prev_key == 'g') {
+          prev_key = -1;
+          return GOTO_TOP;
+          break;
+        }
+        break;
+      case 'G':
+        if (E.mode == NORMAL) {
+          prev_key = c;
+          return GOTO_BOT;
+          break;
+        }
         break;
 
       case CTRL_KEY('U'):
-        if (E.mode == NORMAL)
+        if (E.mode == NORMAL) {
+          prev_key = c;
           return MV_UP;
+        }
         break;
       case CTRL_KEY('D'):
-        if (E.mode == NORMAL)
+        if (E.mode == NORMAL) {
+          prev_key = c;
           return MV_DOWN;
+        }
         break;
 
       case CTRL_KEY('B'):
-        if (E.mode == NORMAL)
+        if (E.mode == NORMAL) {
+          prev_key = c;
           return PG_UP;
+        }
         break;
       case CTRL_KEY('F'):
         if (E.mode == NORMAL)
@@ -315,19 +373,25 @@ int editorReadKey(void) {
       case '?':
         if (E.mode == NORMAL) {
           E.mode = CLI;
+          prev_key = c;
           return BWD_SEARCH;
         }
         break;
       case 'n':
-        if (E.mode == NORMAL && E.match_cache)
+        if (E.mode == NORMAL && E.match_cache) {
+          prev_key = c;
           return NXT_SEARCH;
+        }
         break;
       case 'N':
-        if (E.mode == NORMAL && E.match_cache)
+        if (E.mode == NORMAL && E.match_cache) {
+          prev_key = c;
           return PRV_SEARCH;
+        }
         break;
     }
 
+    prev_key = c;
     return c;
   }
 }
@@ -1032,7 +1096,7 @@ void editorMoveCursor(int key) {
         E.cy--;
       break;
     case DOWN:
-      if (E.cy < E.numrows)
+      if (E.cy < E.numrows-1)
         E.cy++;
       break;
   }
@@ -1058,6 +1122,7 @@ void editorProcessKeypress(int action) {
 
   switch (c) {
     case BREAK:
+      action = 1;
       break;
 
     case QUIT:
@@ -1078,8 +1143,12 @@ void editorProcessKeypress(int action) {
       editorInsertNewline();
       break;
 
+    case DEL_CHAR:
+      E.cx++;
     case BACKSPACE:
       editorDelChar();
+      if (c == DEL_CHAR && E.cx > 0 && E.cx > E.row[E.cy].size-1)
+        E.cx--;
       break;
 
     case LEFT: case DOWN: case UP: case RIGHT:
@@ -1099,6 +1168,16 @@ void editorProcessKeypress(int action) {
         if (row && row->size > 0)
           E.cx = row->size-1;
       }
+      break;
+
+    case GOTO_TOP:
+      E.cx = 0;
+      E.cy = 0;
+      E.rowoff = 0;
+      break;
+    case GOTO_BOT:
+      E.cy = E.numrows-1;
+      E.cx = E.row[E.cy].size-1;
       break;
 
     case MV_UP: case MV_DOWN:

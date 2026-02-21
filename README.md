@@ -12,7 +12,7 @@ Currently implemented:
     - leader: space
     - prompt mode
 - basic insert mode and normal mode commands
-    - hjkl, ctrl-u/d, ctrl-b/f, 0^$, a/A
+    - hjkl, ctrl-u/d, ctrl-b/f, 0^$, a/A, gg/G, x
     - i, ESC to toggle modes
 - basic status & message bar
 - soft indentation
@@ -20,24 +20,22 @@ Currently implemented:
     - backspace removes tab-worths of space
 - search mode
     - / ? n N to navgiate
-    - highlighted matches, ldr-c to clear
+    - highlighted matches, ldr-nh to clear
 - basic syntax highlighting
     - C language
 
 To-do:
 - more insert & normal mode commands
-    - gg, G, x
+    - r, R
 - cache-based commands
-    - undo, redo, ctrl-o
+    - undo, redo, ctrl-o/i
     - yank, paste
 - motions
     - numeric repeats
     - w, e, b and c, d
-    - r, R
 - visual mode
     - v, shift-V
 - line numbers
 - smart indentation
     - auto indent to start
 - read config file
-- multi-key sequence support for leader bindings
