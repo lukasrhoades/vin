@@ -12,7 +12,7 @@ Currently implemented:
     - leader: space
     - prompt mode
 - basic insert mode and normal mode commands
-    - hjkl, ctrl-U/D, ctrl-B/F, 0^$
+    - hjkl, ctrl-u/d, ctrl-b/f, 0^$, a/A
     - i, ESC to toggle modes
 - basic status & message bar
 - soft indentation
@@ -20,16 +20,15 @@ Currently implemented:
     - backspace removes tab-worths of space
 - search mode
     - / ? n N to navgiate
+    - highlighted matches, ldr-c to clear
 - basic syntax highlighting
     - C language
 
 To-do:
-- highlight matches
 - more insert & normal mode commands
-    - a, A
-    - gg, G
+    - gg, G, x
 - cache-based commands
-    - undo, redo, ctrl-O
+    - undo, redo, ctrl-o
     - yank, paste
 - motions
     - numeric repeats

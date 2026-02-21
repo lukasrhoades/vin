@@ -64,6 +64,8 @@ enum editorHighlight {
 
 #define CURR_ROW \
   (E.cy >= E.numrows) ? NULL : &E.row[E.cy]
+#define VALID_NON_EMPTY_ROW \
+  E.cy < E.numrows && E.row[E.cy].size > 0
 
 #define HL_HIGHLIGHT_NUMBERS (1<<0)
 #define HL_HIGHLIGHT_STRINGS (1<<1)
@@ -151,6 +153,7 @@ struct editorSyntax HLDB[] = {
 void editorSetStatusMessage(const char* fmt, ...);
 void editorRefreshScreen(void);
 char *editorPrompt(char *prompt, void (*callback)(char *, int));
+void editorProcessKeypress(int action);
 
 /*** terminal ***/
 
@@ -183,7 +186,7 @@ void enableRawMode(void) {
   if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == -1)
     die("tcsetattr");
 }
-
+ 
 int editorReadKey(void) {
   int nread;
   char c;
@@ -192,13 +195,15 @@ int editorReadKey(void) {
     if (nread == -1)
       die ("read");
   }
-  
+
   if (c == '\x1b') {
     char seq[3];
 
     if (read(STDIN_FILENO, &seq[0], 1) != 1) {
       if (E.mode == INSERT) {
         E.mode = NORMAL;
+        if (VALID_NON_EMPTY_ROW && E.cx > E.row[E.cy].size-1)
+          E.cx = E.row[E.cy].size-1;
         return BREAK;
       }
     }
@@ -225,6 +230,15 @@ int editorReadKey(void) {
     return LDR;
   } else {
     switch (c) {
+      case 'A':
+        if (E.mode != NORMAL)
+          break;
+        editorProcessKeypress(END_LINE);
+      case 'a':
+        if (E.mode != NORMAL)
+          break;
+        if (E.cx < E.row[E.cy].size)
+          E.cx++;
       case 'i':
         if (E.mode == NORMAL) {
           E.mode = INSERT;
@@ -479,23 +493,49 @@ void editorUpdateSyntax(erow *row) {
     editorUpdateSyntax(&E.row[row->idx+1]);
 }
 
-int editorSyntaxToColor(int hl) {
+typedef struct colors {
+  int fg;
+  int bg;
+} colors;
+
+colors editorSyntaxToColor(int hl) {
   switch (hl) {
     case HL_COMMENT:
     case HL_MLCOMMENT:
-      return 36;
+      {
+        colors comment = { 36, 49 };
+        return comment;
+      }
     case HL_KEYWORD1:
-      return 33;
+      {
+        colors kw1 = { 33, 49 };
+        return kw1;
+      }
     case HL_KEYWORD2:
-      return 32;
+      {
+        colors kw2 = { 32, 49 };
+        return kw2;
+      }
     case HL_STRING:
-      return 35;
+      {
+        colors string = { 35, 49 };
+        return string;
+      }
     case HL_NUMBER:
-      return 31;
+      {
+        colors num = { 31, 49 };
+        return num;
+      }
     case HL_MATCH:
-      return 34;
+      {
+        colors match = { 39, 100 };
+        return match;
+      }
     default:
-      return 37;
+      {
+        colors reset = { 39, 49 };
+        return reset;
+      }
   }
 }
 
@@ -984,7 +1024,7 @@ void editorMoveCursor(int key) {
         E.cx--;
       break;
     case RIGHT:
-      if (row && E.cx < row->size)
+      if (row && E.cx < row->size-1)
         E.cx++;
       break;
     case UP:
@@ -998,9 +1038,10 @@ void editorMoveCursor(int key) {
   }
 
   row = CURR_ROW;
-  int rowlen = row ? row->size : 0;
-  if (E.cx > rowlen)
-    E.cx = rowlen;
+  if (!row || row->size == 0)
+    E.cx = 0;
+  else if (E.cx > row->size-1)
+    E.cx = row->size-1;
 }
 
 void editorGoToFirstChar(void) {
@@ -1010,10 +1051,10 @@ void editorGoToFirstChar(void) {
 }
 
 
-void editorProcessKeypress(void) {
+void editorProcessKeypress(int action) {
   static int quit_times = QUIT_TIMES;
 
-  int c = editorReadKey();
+  int c = action ? action : editorReadKey();
 
   switch (c) {
     case BREAK:
@@ -1055,8 +1096,8 @@ void editorProcessKeypress(void) {
     case END_LINE:
       { 
         erow *row = CURR_ROW;
-        int rowlen = row ? row->size : 0;
-        E.cx = rowlen;
+        if (row && row->size > 0)
+          E.cx = row->size-1;
       }
       break;
 
@@ -1116,7 +1157,7 @@ void editorProcessKeypress(void) {
       break;
   }
 
-  quit_times = QUIT_TIMES;
+  quit_times = action ? quit_times : QUIT_TIMES;
 }
 
 /*** output***/
@@ -1167,7 +1208,8 @@ void editorDrawRows(struct abuf *ab) {
 
       char *c = &E.row[filerow].chars[E.coloff];
       unsigned char *hl = &E.row[filerow].hl[E.coloff];
-      int current_color = -1;
+      int curr_fg = -1;
+      int curr_bg = -1;
 
       for (int j=0; j<len; j++) {
         if (iscntrl(c[j])) {
@@ -1175,29 +1217,33 @@ void editorDrawRows(struct abuf *ab) {
           abAppend(ab, "\x1b[7m", 4);
           abAppend(ab, &sym, 1);
           abAppend(ab, "\x1b[m", 3);
-          if (current_color != -1) {
+          if (curr_fg != -1 && curr_bg != -1) {
             char buf[16];
-            int clen = snprintf(buf, sizeof(buf), "\x1b[%dm", current_color);
+            int clen = snprintf(buf, sizeof(buf), "\x1b[%d;%dm", curr_fg, curr_bg);
             abAppend(ab, buf, clen);
           }
         } else if (hl[j] == HL_NORMAL) {
-          if (current_color != -1) {
-            abAppend(ab, "\x1b[39m", 5);
-            current_color = -1;
+          if (curr_fg != -1 && curr_bg != -1) {
+            abAppend(ab, "\x1b[39;49m", 8);
+            curr_fg = -1;
+            curr_bg = -1;
           }
           abAppend(ab, &c[j], 1);
         } else {
-          int color = editorSyntaxToColor(hl[j]);
-          if (color != current_color) {
-            current_color = color;
+          colors color = editorSyntaxToColor(hl[j]);
+          int fg = color.fg;
+          int bg = color.bg;
+          if (fg != curr_fg && bg != curr_bg) {
+            curr_fg = fg;
+            curr_bg = bg;
             char buf[16];
-            int clen = snprintf(buf, sizeof(buf), "\x1b[%dm", color);
+            int clen = snprintf(buf, sizeof(buf), "\x1b[%d;%dm", curr_fg, curr_bg);
             abAppend(ab, buf, clen);
           }
           abAppend(ab, &c[j], 1);
         }
       }
-      abAppend(ab, "\x1b[39m", 5);
+      abAppend(ab, "\x1b[39;49m", 8);
     }
 
     abAppend(ab, "\x1b[K", 3);
@@ -1305,7 +1351,7 @@ int main(int argc, char *argv[]) {
 
   while (1) {
     editorRefreshScreen();
-    editorProcessKeypress();
+    editorProcessKeypress(0);
   }
 
   return 0;
