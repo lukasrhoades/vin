@@ -3,8 +3,9 @@
 Vin is a mINimal implementation of a subset of vi. Its goal is to mimic the editor experience of [this
 Neovim configuration](https://github.com/lukasrhoades/dotfiles/blob/main/nvim/init.lua).
 
-Vin is built on [antirez's kilo editor](https://github.com/antirez/kilo), following along with
-[Snaptoken instructions](https://viewsourcecode.org/snaptoken/kilo/index.html) by Paige Ruten.
+Vin is built on [antirez's kilo editor](https://github.com/antirez/kilo), initially following along with
+[Snaptoken instructions](https://viewsourcecode.org/snaptoken/kilo/index.html) by Paige Ruten. This
+phase has since been completed, and development has shifted towards implementing vi features.
 
 Currently implemented:
 - open and save files
@@ -19,11 +20,14 @@ Currently implemented:
     - backspace removes tab-worths of space
 - search mode
     - / ? n N to navgiate
+- basic syntax highlighting
+    - C language
 
 To-do:
 - highlight matches
-- multi-key sequence support for leader bindings
-- syntax highlighting (Snaptoken)
+- more insert & normal mode commands
+    - a, A
+    - gg, G
 - cache-based commands
     - undo, redo, ctrl-O
     - yank, paste
@@ -37,3 +41,4 @@ To-do:
 - smart indentation
     - auto indent to start
 - read config file
+- multi-key sequence support for leader bindings
